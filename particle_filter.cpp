@@ -156,67 +156,73 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 	//   http://planning.cs.uiuc.edu/node99.html
 	for (int i= 0; i <= num_particles; i++)
 	{
-		double x, y, theta;
+		double p_x,p_y,p_theta;
 
-		x = particles[i].x;
-		y = particles[i].y;
-		theta = particles[i].theta;
+		p_x = particles[i].x;
+		p_y = particles[i].y;
+		p_y = particles[i].theta;
 
-		vector<LandmarkObs> predictions;
-		for(int j=0; j< map_landmarks.landmark_list.size(); j++)
+		//landmark predictions
+		vector<LandmarkObs> landmark_prediction;
+		for (int j=0; j < map_landmarks.landmark_list.size(); j++)
 		{
-			float l_x = map_landmarks.landmark_list[j].x_f;
-			float l_y = map_landmarks.landmark_list[j].y_f;
-		 	int l_id = map_landmarks.landmark_list[j].id_i;
+			float land_x = map_landmarks.landmark_list[j].x_f;
+			float land_y = map_landmarks.landmark_list[j].y_f;
+			float land_id = map_landmarks.landmark_list[j].id_i;
 
-			predictions.push_back(LandmarkObs{ l_id,l_x, l_y });
+			double distance= dist(p_x,p_y,land_x,land_y);
 
-		}
-
-		vector<LandmarkObs> trans_observ;
-		LandmarkObs obs;
-		for(int j=0; j< observations.size(); j++)
-		{
-			LandmarkObs trans_obs;
-			obs = observations[j];
-
-			trans_obs.x = particles[i].x + (obs.x * cos(particles[i].theta) - obs.y  * sin(particles[i].theta));
-			trans_obs.y = particles[i].y + (obs.x * sin(particles[i].theta) - obs.y * cos(particles[i].theta));
-			trans_observ.push_back(trans_obs);
-
-		}
-
-		dataAssociation(predictions, trans_observ);
-		particles[i].weight = 1.0;
-
-		for(int j=0; j< trans_observ.size(); j++)
-		{
-			double x1,  y1,  x2,  y2;
-			x1 = trans_observ[j].x;
-			y1 = trans_observ[j].y;
-
-			int associated_predict= trans_observ[j].id;
-			double p_x,p_y;
-			for(int k=0; k <predictions.size(); k++)
+			if(distance <= sensor_range)
 			{
-				if(predictions[k].id == associated_predict)
-				{
-					p_x =predictions[k].x;
-					p_y =predictions[k].y;
+				landmark_prediction.push_back(LandmarkObs{land_id,land_x,land_y});
+			}
 
+		}
+
+
+		//landmark observations
+		vector<LandmarkObs> landmark_observaton
+		for (int j=0; j < observations.size(); j++)
+		{
+			LandmarkObs objObservation;
+
+			objObservation.id = j;
+			objObservation.x  = particles[i].x + (observations[i].x * cos(particles[i].theta) - observations[i].y  * sin(particles[i].theta));
+			objObservation.y  = particles[i].y + (observations[i].x * sin(particles[i].theta) - observations[i].y * cos(particles[i].theta));
+
+			landmark_observaton.push_back(objObservation);
+
+		}
+
+		dataAssociation(landmark_prediction,landmark_observaton);
+
+		//Update weights
+		particles[i].weight =1.0;
+		double sig_x = std_landmark[0];
+		double sig_y = std_landmark[1];
+		double gauss_norm = (1/(2 * M_PI * sig_x * sig_y));
+
+		for (int j=0; j< landmark_observaton.size(); j++)
+		{
+			double l_ox,l_oy;
+			l_ox = landmark_observaton[j].x;
+			l_oy = landmark_observaton[j].y;
+
+			for (int k=0; k<landmark_prediction.size(), k++)
+			{
+				double l_px,l_py;
+				l_px = landmark_prediction[k].x;
+				l_py = landmark_prediction[k].y;
+				if(landmark_observaton[k].id == landmark_prediction[k].id)
+				{
+
+					double exponent = exp(-1.0 * (pow(l_ox - l_px,2))/(2 * pow(sig_x,2)) + (pow(l_oy - l_py,2)/(2 * pow(sig_y,2))));
+					particles[i].weight *=gauss_norm * exponent;
 				}
 			}
 
-			double sig_x = std_landmark[0];
-			double sig_y = std_landmark[1];
-			double gauss_norm = (1/(2 * M_PI * sig_x * sig_y));
-			double exponent = exp(-(pow(p_x - x1,2))/(2 * pow(sig_x,2)) + (pow(p_y - y1,2)/(2 * pow(sig_y,2))));
-
-			double obs_weight = gauss_norm * exponent;
-
-			particles[i].weight *=obs_weight;
-
 		}
+		weights[i] = particles[i].weight;
 
 	}
 
@@ -229,31 +235,14 @@ void ParticleFilter::resample() {
 	//   http://en.cppreference.com/w/cpp/numeric/random/discrete_distribution
 	vector<Particle> new_particles;
 
-	vector<double> weights;
-	for (int i =0; i< num_particles; i++)
+	random_device rd;
+    default_random_engine gen(rd());
+	for (int i = 0; i < num_particles; ++i) 
 	{
-		weights.push_back(particles[i].weight);
+	    discrete_distribution<int> index(weights.begin(), weights.end());
+	    new_particles[i] = particles[index(gen)];
+	    
 	}
-
-	discrete_distribution<int> uniintdist(0 , num_particles-1);
-
-	auto index =uniintdist(random);
-
-	double max_weight = *max_element(weights.begin(), weights.end());
-	uniform_real_distribution<double> unirealdist(0.0 , max_weight);
-	double beta =0.0;
-
-	for (int i =0; i <num_particles; i++)
-	{
-		beta+=unirealdist(random) * 2.0;
-		while(beta > weights[index])
-		{
-			beta -= weights[index];
-			index = (index + 1) % num_particles;
-		}
-		new_particles.push_back(particles[index]);
-	}
-
 	particles = new_particles;
 }
 
